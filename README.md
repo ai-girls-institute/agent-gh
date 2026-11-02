@@ -69,7 +69,8 @@ Plain `git push` works through the helper. Use `exec` when git runs inside a res
 some agent sandboxes on Windows cannot use schannel (`SEC_E_NO_CREDENTIALS`) or start `sh.exe`
 (Git for Windows launches every credential helper through it). In agent mode, `exec` gives the child
 git `http.sslBackend=openssl`, an empty helper list, and the token as a github.com-scoped
-`Authorization` header, all through `GIT_CONFIG_*` variables. Nothing is written to disk.
+`Authorization` header, all through `GIT_CONFIG_*` variables. The header lives only in the child's
+environment and is never written to any gitconfig.
 
 Environment overrides: `AGENT_GH_HOME` (config directory), `AGENT_GH_GCM` (path to
 `git-credential-manager`), `AGENT_GH_NODE` (node executable used by the wrappers).
@@ -79,6 +80,11 @@ Environment overrides: `AGENT_GH_HOME` (config directory), `AGENT_GH_GCM` (path 
 - **Attribution, not isolation.** All agents run as the same OS user and can read each other's keys.
   This makes authorship clear and lets you scope repositories per App; it does not stop one agent from
   acting as another.
+- **Tokens are cached on disk.** Each agent's installation token (valid for up to one hour) is cached
+  in `<os temp dir>/agent-gh/` as JSON, so repeated git calls do not hit the API. The file is created
+  with mode `0600`; on Windows that mode is not enforced and protection comes from the per-user
+  `%TEMP%` ACL. Any process running as the same user can read it. `erase` from git deletes a rejected
+  token; delete the directory to clear all cached tokens.
 - Under `exec`, the token is visible in the environment of git and its children (hooks). Do not run
   `git config --list` or enable `GIT_CURL_VERBOSE` under `exec`.
 - Only HTTPS to github.com goes through agent-gh. SSH remotes, other hosts, and IDE or desktop-app
