@@ -87,7 +87,8 @@ Install Node.js 18+, then place the program files, keys and an `apps.json` based
 ~/.agent-gh/
 ├── agent-gh.js
 ├── agent-gh          # bash entry
-├── agent-gh.cmd      # cmd / PowerShell entry
+├── agent-gh.ps1      # PowerShell entry
+├── agent-gh.cmd      # cmd entry
 ├── apps.json         # copy from apps.example.json
 ├── claude.pem
 └── codex.pem
@@ -132,6 +133,20 @@ agent-gh exec -- git push ...        # git without a credential helper
 ```
 
 Use ordinary `git push` when the helper can run. In sandboxes that block schannel or `sh.exe`, use `exec`: it selects OpenSSL, clears the github.com helper chain and supplies a github.com-scoped Authorization header through `GIT_CONFIG_*`. These settings stay in the child environment and are not written to gitconfig.
+
+### Windows arguments
+
+PowerShell selects `agent-gh.ps1` ahead of `agent-gh.cmd` in the same directory. The PowerShell entry avoids cmd's extra interpretation of arguments. Always put `--` immediately after `exec`: PowerShell consumes the first `--` when calling a script, so `agent-gh exec -- git log -- file` preserves the target command's `--`.
+
+In cmd.exe, the `.cmd` entry still interprets unquoted `& | ^`; `%VAR%` expands even inside double quotes. For arguments containing these characters, use PowerShell or Git Bash; you can also bypass the entry by calling Node directly from PowerShell:
+
+```powershell
+node "$env:USERPROFILE\.agent-gh\agent-gh.js" exec -- gh api 'repos/example/project/actions/runs?branch=main&per_page=5'
+```
+
+PowerShell 5.1 still has limitations passing embedded double quotes to native programs; the new entry does not fix those.
+
+With execution policy `Restricted`, PowerShell rejects the `.ps1` entry instead of falling back to `.cmd`. Either omit/remove only `agent-gh.ps1` and use the direct Node invocation above for special arguments, or, if your machine's policy permits scripts, choose `RemoteSigned` for `CurrentUser` with `Set-ExecutionPolicy -Scope CurrentUser -ExecutionPolicy RemoteSigned`. Organization policies can take precedence. The offline entry checks run with `powershell.exe -NoProfile -File tests/powershell-entry.ps1`.
 
 ## Configuration
 
