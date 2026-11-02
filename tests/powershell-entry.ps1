@@ -6,6 +6,8 @@ $probe = Join-Path $testDir 'probe.js'
 $stdinProbe = Join-Path $testDir 'stdin-probe.js'
 $stderrProbe = Join-Path $testDir 'stderr-probe.js'
 $cmdDriver = Join-Path $testDir 'cmd-check.cmd'
+$fixtureEntry = Join-Path $testDir 'agent-gh.ps1'
+$fixtureProgram = Join-Path $testDir 'agent-gh.js'
 $savedEnvironment = @{}
 foreach ($name in @('PATH', 'ROOM_AGENT', 'GH_TOKEN', 'GITHUB_TOKEN',
                     'GH_ENTERPRISE_TOKEN', 'GITHUB_ENTERPRISE_TOKEN', 'AGENT_GH_NODE')) {
@@ -131,12 +133,33 @@ try {
         throw 'Pipeline input or comma arguments changed'
     }
     Write-Output 'PASS 12: pipeline input and comma arguments are preserved together'
+
+    # Exercise the entry itself, with an argv-only JS substitute and no credentials.
+    Copy-Item -LiteralPath $resolved -Destination $fixtureEntry
+    Copy-Item -LiteralPath $probe -Destination $fixtureProgram
+    $actual = & $fixtureEntry whoami
+    if ($LASTEXITCODE -ne 0) { throw 'Single entry argument probe failed' }
+    Assert-Arguments ($actual -join "`n") @('whoami')
+    Write-Output 'PASS 13: one entry argument stays one argument'
+
+    $actual = & $fixtureEntry url,state
+    if ($LASTEXITCODE -ne 0) { throw 'Single comma-list entry argument probe failed' }
+    Assert-Arguments ($actual -join "`n") @('url,state')
+    Write-Output 'PASS 14: one comma-list entry argument stays one argument'
+
+    $actual = & $fixtureEntry
+    if ($LASTEXITCODE -ne 0) { throw 'Zero entry arguments probe failed' }
+    Assert-Arguments ($actual -join "`n") @()
+    $actual = & $fixtureEntry exec --
+    if ($LASTEXITCODE -ne 0) { throw 'Lone exec entry argument probe failed' }
+    Assert-Arguments ($actual -join "`n") @('exec')
+    Write-Output 'PASS 15: zero entry arguments and a lone exec are preserved'
 } finally {
     foreach ($name in $savedEnvironment.Keys) {
         [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
     }
     # Delete only these known test files, then remove the empty test directory.
-    Remove-Item -LiteralPath $probe, $stdinProbe, $stderrProbe, $cmdDriver -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $probe, $stdinProbe, $stderrProbe, $cmdDriver, $fixtureEntry, $fixtureProgram -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $testDir -Force -ErrorAction SilentlyContinue
 }
 exit 0
