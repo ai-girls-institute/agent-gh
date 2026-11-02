@@ -1,0 +1,4 @@
+* text=auto
+agent-gh text eol=lf
+*.js text eol=lf
+*.cmd text eol=crlf

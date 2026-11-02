@@ -1,0 +1,31 @@
+# Private keys never go into git.
+*.pem
+*.key
+
+# Local backups and temp files.
+*.backup-*
+*.bak
+*.tmp
+
+# Editors and IDEs.
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*~
+
+# OS files.
+.DS_Store
+._*
+Thumbs.db
+desktop.ini
+
+# Local env files.
+.env
+.env.*
+
+# Per-machine App mapping (copy apps.example.json to ~/.agent-gh/apps.json).
+apps.json
+
+# Local working files (e.g. AI Room), not part of the published tool.
+.room/

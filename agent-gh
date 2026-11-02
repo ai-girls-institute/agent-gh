@@ -1,0 +1,2 @@
+#!/bin/sh
+exec "${AGENT_GH_NODE:-node}" "$(dirname "$0")/agent-gh.js" "$@"

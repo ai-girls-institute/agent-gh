@@ -1,0 +1,14 @@
+{
+  "claude": {
+    "appId": 1234567,
+    "slug": "your-org-claude",
+    "owner": "your-org",
+    "key": "claude.pem"
+  },
+  "codex": {
+    "appId": 2345678,
+    "slug": "your-org-codex",
+    "owner": "your-org",
+    "key": "codex.pem"
+  }
+}
