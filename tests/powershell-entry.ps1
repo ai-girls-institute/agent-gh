@@ -41,7 +41,7 @@ try {
     $env:AGENT_GH_NODE = $nodeExe
     New-Item -ItemType Directory -Path $testDir | Out-Null
     [IO.File]::WriteAllText($probe, 'console.log(JSON.stringify(process.argv.slice(2)));')
-    [IO.File]::WriteAllText($stdinProbe, 'console.log(JSON.stringify(require("fs").readFileSync(0, "utf8")));')
+    [IO.File]::WriteAllText($stdinProbe, 'console.log(JSON.stringify({stdin: require("fs").readFileSync(0, "utf8"), args: process.argv.slice(2)}));')
     [IO.File]::WriteAllText($stderrProbe, 'console.log("stdout-marker"); console.error("stderr-marker");')
 
     $resolved = (Get-Command agent-gh).Source
@@ -82,7 +82,7 @@ try {
     $actual = $payload | agent-gh exec -- node $stdinProbe
     if ($LASTEXITCODE -ne 0) { throw 'Wrapped stdin probe failed' }
     if (($actual -join "`n") -cne ($direct -join "`n") -or
-        [string]::IsNullOrEmpty((ConvertFrom-Json -InputObject ($actual -join "`n")))) {
+        [string]::IsNullOrEmpty((ConvertFrom-Json -InputObject ($actual -join "`n")).stdin)) {
         throw 'Pipeline input was not preserved'
     }
     Write-Output 'PASS 6: pipeline input matches direct Node input'
@@ -100,6 +100,37 @@ try {
         throw 'Redirected native stderr was mistaken for a launch failure'
     }
     Write-Output 'PASS 8: redirected stderr preserves output and exit code 0'
+
+    $actual = agent-gh exec -- node $probe --json url,state,author 1,2
+    if ($LASTEXITCODE -ne 0) { throw 'Comma argument probe failed' }
+    Assert-Arguments ($actual -join "`n") @('--json', 'url,state,author', '1,2')
+    Write-Output 'PASS 9: unquoted comma lists stay single arguments'
+
+    $items = @('left', 'right')
+    $actual = agent-gh exec -- node $probe 'p,q' 'a&b' 'x %OS%' -X GET 'with space' $items
+    if ($LASTEXITCODE -ne 0) { throw 'Array argument probe failed' }
+    Assert-Arguments ($actual -join "`n") @('p,q', 'a&b', 'x %OS%', '-X', 'GET', 'with space', 'left,right')
+    $actual = agent-gh exec -- node $probe @items
+    if ($LASTEXITCODE -ne 0) { throw 'Splatted argument probe failed' }
+    Assert-Arguments ($actual -join "`n") @('left', 'right')
+    $actual = agent-gh exec -- node $probe url, state
+    if ($LASTEXITCODE -ne 0) { throw 'Spaced comma list probe failed' }
+    Assert-Arguments ($actual -join "`n") @('url,state')
+    Write-Output 'PASS 10: array joining and explicit splatting match the documented behavior'
+
+    $actual = agent-gh exec -- node $probe
+    if ($LASTEXITCODE -ne 0) { throw 'Empty argument probe failed' }
+    Assert-Arguments ($actual -join "`n") @()
+    Write-Output 'PASS 11: target receives no extra argument when none are supplied'
+
+    $direct = $payload | & $nodeExe $stdinProbe --json 'url,state,author' '1,2'
+    if ($LASTEXITCODE -ne 0) { throw 'Direct pipeline comma probe failed' }
+    $actual = $payload | agent-gh exec -- node $stdinProbe --json url,state,author 1,2
+    if ($LASTEXITCODE -ne 0) { throw 'Wrapped pipeline comma probe failed' }
+    if (($actual -join "`n") -cne ($direct -join "`n")) {
+        throw 'Pipeline input or comma arguments changed'
+    }
+    Write-Output 'PASS 12: pipeline input and comma arguments are preserved together'
 } finally {
     foreach ($name in $savedEnvironment.Keys) {
         [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')

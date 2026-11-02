@@ -138,6 +138,8 @@ agent-gh exec -- git push ...        # 不经过 credential helper 运行 git
 
 同一目录里，PowerShell 会优先选择 `agent-gh.ps1`，而不是 `agent-gh.cmd`。PowerShell 入口避开 cmd 对参数的再次解释。`exec` 后面必须紧跟 `--`：PowerShell 调用脚本时会吃掉第一个 `--`，因此 `agent-gh exec -- git log -- file` 才能保留目标命令的 `--`。
 
+`.ps1` 入口会把逗号列表（如 `--json url,state`）拼回一个参数，不带空格时与直接调用程序一致。数组变量 `$items` 也会用逗号拼成一个参数，逗号后带空格的列表同样如此；需要分开传值时，请写多个参数，或用 `@items` 展开。PowerShell 5.1 仍会丢掉空字符串参数 `''`，直接调用程序也有这一限制。
+
 在 cmd.exe 里，`.cmd` 入口仍会解释未被双引号保护的 `& | ^`；`%VAR%` 即使在双引号里也会展开。有这些字符时，请用 PowerShell 或 Git Bash；也可以在 PowerShell 里直接调用 Node，绕过入口：
 
 ```powershell

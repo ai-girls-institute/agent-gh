@@ -138,6 +138,8 @@ Use ordinary `git push` when the helper can run. In sandboxes that block schanne
 
 PowerShell selects `agent-gh.ps1` ahead of `agent-gh.cmd` in the same directory. The PowerShell entry avoids cmd's extra interpretation of arguments. Always put `--` immediately after `exec`: PowerShell consumes the first `--` when calling a script, so `agent-gh exec -- git log -- file` preserves the target command's `--`.
 
+The `.ps1` entry joins comma lists such as `--json url,state` into one argument, matching direct program invocation for lists without spaces. Array-valued arguments such as `$items` are also joined with commas, as are lists written with a space after the comma. To pass separate values, write separate arguments or splat them with `@items`. PowerShell 5.1 still drops empty string arguments (`''`), including when invoking programs directly.
+
 In cmd.exe, the `.cmd` entry still interprets unquoted `& | ^`; `%VAR%` expands even inside double quotes. For arguments containing these characters, use PowerShell or Git Bash; you can also bypass the entry by calling Node directly from PowerShell:
 
 ```powershell
