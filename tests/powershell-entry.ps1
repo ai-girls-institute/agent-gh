@@ -3,6 +3,8 @@ $ErrorActionPreference = 'Stop'
 $repoRoot = (Resolve-Path -LiteralPath (Join-Path $PSScriptRoot '..')).Path
 $testDir = Join-Path $PSScriptRoot (([guid]::NewGuid().ToString('N')) + '.tmp')
 $probe = Join-Path $testDir 'probe.js'
+$stdinProbe = Join-Path $testDir 'stdin-probe.js'
+$stderrProbe = Join-Path $testDir 'stderr-probe.js'
 $cmdDriver = Join-Path $testDir 'cmd-check.cmd'
 $savedEnvironment = @{}
 foreach ($name in @('PATH', 'ROOM_AGENT', 'GH_TOKEN', 'GITHUB_TOKEN',
@@ -22,6 +24,13 @@ function Assert-Arguments([string]$ActualText, [string[]]$Expected) {
     }
 }
 
+function Invoke-StderrProbe {
+    # Model a normal caller redirecting native stderr, without promoting it to an exception.
+    $ErrorActionPreference = 'Continue'
+    $output = agent-gh exec -- node $stderrProbe 2>&1
+    [pscustomobject]@{ Code = $LASTEXITCODE; Text = ($output | Out-String) }
+}
+
 try {
     $nodeExe = (Get-Command node -CommandType Application).Source
     $env:PATH = $repoRoot + [IO.Path]::PathSeparator + $env:PATH
@@ -32,6 +41,8 @@ try {
     $env:AGENT_GH_NODE = $nodeExe
     New-Item -ItemType Directory -Path $testDir | Out-Null
     [IO.File]::WriteAllText($probe, 'console.log(JSON.stringify(process.argv.slice(2)));')
+    [IO.File]::WriteAllText($stdinProbe, 'console.log(JSON.stringify(require("fs").readFileSync(0, "utf8")));')
+    [IO.File]::WriteAllText($stderrProbe, 'console.log("stdout-marker"); console.error("stderr-marker");')
 
     $resolved = (Get-Command agent-gh).Source
     if ($resolved -ne (Join-Path $repoRoot 'agent-gh.ps1')) {
@@ -64,11 +75,37 @@ try {
     if ($LASTEXITCODE -ne 0) { throw 'cmd entry smoke check failed' }
     Assert-Arguments ($actual -join "`n") @('cmd smoke')
     Write-Output 'PASS 5: existing cmd entry still runs through cmd.exe'
+
+    $payload = "protocol=https`nhost=example.invalid"
+    $direct = $payload | & $nodeExe $stdinProbe
+    if ($LASTEXITCODE -ne 0) { throw 'Direct stdin probe failed' }
+    $actual = $payload | agent-gh exec -- node $stdinProbe
+    if ($LASTEXITCODE -ne 0) { throw 'Wrapped stdin probe failed' }
+    if (($actual -join "`n") -cne ($direct -join "`n") -or
+        [string]::IsNullOrEmpty((ConvertFrom-Json -InputObject ($actual -join "`n")))) {
+        throw 'Pipeline input was not preserved'
+    }
+    Write-Output 'PASS 6: pipeline input matches direct Node input'
+
+    $env:AGENT_GH_NODE = Join-Path $testDir 'missing-node.exe'
+    $global:LASTEXITCODE = 0
+    agent-gh exec -- node $probe
+    if ($LASTEXITCODE -ne 1) { throw 'Missing Node did not produce exit code 1' }
+    $env:AGENT_GH_NODE = $nodeExe
+    Write-Output 'PASS 7: missing Node returns 1 instead of a stale success code'
+
+    $stderrResult = Invoke-StderrProbe
+    if ($stderrResult.Code -ne 0 -or $stderrResult.Text -notmatch 'stdout-marker' -or
+        $stderrResult.Text -notmatch 'stderr-marker') {
+        throw 'Redirected native stderr was mistaken for a launch failure'
+    }
+    Write-Output 'PASS 8: redirected stderr preserves output and exit code 0'
 } finally {
     foreach ($name in $savedEnvironment.Keys) {
         [Environment]::SetEnvironmentVariable($name, $savedEnvironment[$name], 'Process')
     }
     # Delete only these known test files, then remove the empty test directory.
-    Remove-Item -LiteralPath $probe, $cmdDriver -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath $probe, $stdinProbe, $stderrProbe, $cmdDriver -Force -ErrorAction SilentlyContinue
     Remove-Item -LiteralPath $testDir -Force -ErrorAction SilentlyContinue
 }
+exit 0
