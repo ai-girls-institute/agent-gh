@@ -1,97 +1,156 @@
+<div align="center">
+
 # agent-gh
 
-Give each AI coding agent on a shared machine its own GitHub identity.
+**One GitHub identity for each AI agent on a shared machine.**
 
-When several agents (Claude Code, Codex, other CLI agents) run under one OS user, they share one
-`~/.gitconfig` and one `gh` login, so every commit and PR looks like it came from the human. agent-gh
-gives each agent its own **GitHub App**: commits are authored by `your-app[bot]`, pushes and PRs use
-that App's installation token, and the human's own git keeps working exactly as before.
+**English** · [简体中文](README.zh-CN.md)
 
-- One file, Node.js 18+ (uses built-in `fetch` and `crypto`), no dependencies.
-- Built and tested on Windows with Git for Windows and Git Credential Manager (GCM).
+[![License: MIT](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
+![Node.js 18+](https://img.shields.io/badge/node-%E2%89%A518-339933?logo=node.js&logoColor=white)
+![Windows](https://img.shields.io/badge/platform-Windows-0078D6?logo=windows&logoColor=white)
+![No dependencies](https://img.shields.io/badge/dependencies-none-brightgreen)
+
+</div>
+
+Agents under one OS user often share Git author settings and GitHub credentials. agent-gh pairs each agent with a GitHub App so commits and PRs carry its bot identity, while the human keeps using existing credentials.
+
+<table>
+<tr>
+<td><b>Before</b></td>
+<td><b>After</b></td>
+</tr>
+<tr>
+<td>
+
+```
+alice  committed  3 minutes ago
+alice  committed  5 minutes ago
+alice  opened PR #12
+```
+
+</td>
+<td>
+
+```
+claude[bot]  committed  3 minutes ago
+codex[bot]   committed  5 minutes ago
+claude[bot]  opened PR #12
+```
+
+</td>
+</tr>
+</table>
+
+## Contents
+
+- [How it works](#how-it-works)
+- [Quick start](#quick-start)
+- [Usage](#usage)
+- [Configuration](#configuration)
+- [Notes](#notes)
+- [License](#license)
 
 ## How it works
 
-Each agent process carries an environment variable `ROOM_AGENT=<name>` plus the standard
-`GIT_AUTHOR_*` / `GIT_COMMITTER_*` variables. agent-gh is the only git credential helper for
-`https://github.com`:
+Configure agent-gh as the sole credential helper for github.com. It selects credentials using `ROOM_AGENT`; `exec` also supplies credentials to GitHub CLI.
 
-| `ROOM_AGENT` | What happens |
+```
+              git / gh
+                 |
+             agent-gh
+         ROOM_AGENT set?
+          /            \
+        no              yes
+        |                |
+  Git Credential    GitHub App private key
+  Manager (human)   -> installation token (1 h, cached)
+```
+
+| `ROOM_AGENT` | Credential |
 |---|---|
-| unset (the human) | `get` / `store` / `erase` are forwarded to GCM unchanged |
-| set | signs a JWT with that agent's App private key, exchanges it for an installation token (cached until 5 minutes before expiry), returns it to git |
+| unset | Existing credentials through Git Credential Manager |
+| `claude`, `codex`, ... | The matching App installation token |
+| set, but something fails | Returns `quit=true` and stops authentication |
 
-If `ROOM_AGENT` is set and anything goes wrong (unknown agent, missing or broken key, API error,
-non-github.com host), the helper answers `quit=true`. **It never falls back to the human's credentials.**
+## Quick start
 
-## Setup
+### 1. Create a GitHub App per agent
 
-1. **Create one GitHub App per agent** (in your org or account): disable the webhook; grant
-   Contents, Pull requests and Issues read/write (Metadata read-only is implied); install it on the
-   repositories the agent may touch. Download a private key.
-2. **Put files in `~/.agent-gh/`** (or set `AGENT_GH_HOME`): `agent-gh.js`, `agent-gh`,
-   `agent-gh.cmd`, the `.pem` keys, and an `apps.json` based on [`apps.example.json`](apps.example.json).
-   Add the directory to `PATH`.
-3. **Make agent-gh the only helper for github.com** in `~/.gitconfig` (the empty line clears helpers
-   inherited from the system config, such as GCM):
+Disable webhooks, grant Contents, Pull requests and Issues read/write access, and install the App on the repositories it needs. Download its private key.
 
-   ```ini
-   [credential "https://github.com"]
-   	helper =
-   	helper = !\"C:/Program Files/nodejs/node.exe\" C:/Users/<you>/.agent-gh/agent-gh.js credential
-   ```
+### 2. Install
 
-   Other hosts keep their existing helpers. Back up `~/.gitconfig` first; to roll back, run
-   `git config --global --remove-section credential.https://github.com`.
-4. **Set five variables in each agent's own config**, so they apply wherever that agent is launched:
+Install Node.js 18+, then place the program files, keys and an `apps.json` based on [the example](apps.example.json) in this directory:
 
-   ```
-   ROOM_AGENT=claude
-   GIT_AUTHOR_NAME=your-org-claude[bot]
-   GIT_AUTHOR_EMAIL=<bot-user-id>+your-org-claude[bot]@users.noreply.github.com
-   GIT_COMMITTER_NAME=your-org-claude[bot]
-   GIT_COMMITTER_EMAIL=<bot-user-id>+your-org-claude[bot]@users.noreply.github.com
-   ```
+```
+~/.agent-gh/
+├── agent-gh.js
+├── agent-gh          # bash entry
+├── agent-gh.cmd      # cmd / PowerShell entry
+├── apps.json         # copy from apps.example.json
+├── claude.pem
+└── codex.pem
+```
 
-   The bot user id is not the App ID: `gh api users/your-org-claude%5Bbot%5D --jq .id`.
-   Where to put them: Claude Code `~/.claude/settings.json` (`env`), Codex `~/.codex/config.toml`
-   (`[shell_environment_policy.set]`), other tools wherever they define child-process environment.
+Fill in the App IDs, slugs, owners and key filenames in `apps.json`, then add the directory to `PATH`.
+
+### 3. Point git at agent-gh
+
+```ini
+[credential "https://github.com"]
+	helper =
+	helper = !\"C:/Program Files/nodejs/node.exe\" C:/Users/<you>/.agent-gh/agent-gh.js credential
+```
+
+Back up `~/.gitconfig` and adjust the paths above. The empty `helper =` entry clears inherited helpers for github.com; other hosts retain their settings. Remove this section with `git config --global --remove-section credential.https://github.com`, or restore your backup if it contained earlier settings.
+
+### 4. Give each agent its identity
+
+```
+ROOM_AGENT=claude
+GIT_AUTHOR_NAME=your-org-claude[bot]
+GIT_AUTHOR_EMAIL=<bot-user-id>+your-org-claude[bot]@users.noreply.github.com
+GIT_COMMITTER_NAME=your-org-claude[bot]
+GIT_COMMITTER_EMAIL=<bot-user-id>+your-org-claude[bot]@users.noreply.github.com
+```
+
+| Agent | Where to set it |
+|---|---|
+| Claude Code | `~/.claude/settings.json` → `env` |
+| Codex | `~/.codex/config.toml` → `[shell_environment_policy.set]` |
+| Others | Child-process environment settings |
+
+Use your App slug in the name and email fields. The bot user ID differs from the App ID: query it with `gh api users/your-org-claude%5Bbot%5D --jq .id`. Set the five variables separately for each agent.
 
 ## Usage
 
 ```
-agent-gh whoami                          # who am I, which App, which repos
-agent-gh exec -- gh pr create ...        # run gh with a fresh token in GH_TOKEN
-agent-gh exec -- git push ...            # run git without a credential helper (see below)
+agent-gh whoami                      # identity, App, accessible repos
+agent-gh exec -- gh pr create ...    # gh with a fresh GH_TOKEN
+agent-gh exec -- git push ...        # git without a credential helper
 ```
 
-Plain `git push` works through the helper. Use `exec` when git runs inside a restrictive sandbox:
-some agent sandboxes on Windows cannot use schannel (`SEC_E_NO_CREDENTIALS`) or start `sh.exe`
-(Git for Windows launches every credential helper through it). In agent mode, `exec` gives the child
-git `http.sslBackend=openssl`, an empty helper list, and the token as a github.com-scoped
-`Authorization` header, all through `GIT_CONFIG_*` variables. The header lives only in the child's
-environment and is never written to any gitconfig.
+Use ordinary `git push` when the helper can run. In sandboxes that block schannel or `sh.exe`, use `exec`: it selects OpenSSL, clears the github.com helper chain and supplies a github.com-scoped Authorization header through `GIT_CONFIG_*`. These settings stay in the child environment and are not written to gitconfig.
 
-Environment overrides: `AGENT_GH_HOME` (config directory), `AGENT_GH_GCM` (path to
-`git-credential-manager`), `AGENT_GH_NODE` (node executable used by the wrappers).
+## Configuration
 
-## Limitations
+| Variable | Default | Purpose |
+|---|---|---|
+| `ROOM_AGENT` | unset | Agent name matching an `apps.json` entry |
+| `AGENT_GH_HOME` | `~/.agent-gh` | Directory for `apps.json` and relative key paths |
+| `AGENT_GH_GCM` | Git for Windows GCM path | Git Credential Manager executable for the human path |
+| `AGENT_GH_NODE` | `node` | Node executable used by the launchers |
 
-- **Attribution, not isolation.** All agents run as the same OS user and can read each other's keys.
-  This makes authorship clear and lets you scope repositories per App; it does not stop one agent from
-  acting as another.
-- **Tokens are cached on disk.** Each agent's installation token (valid for up to one hour) is cached
-  in `<os temp dir>/agent-gh/` as JSON, so repeated git calls do not hit the API. The file is created
-  with mode `0600`; on Windows that mode is not enforced and protection comes from the per-user
-  `%TEMP%` ACL. Any process running as the same user can read it. `erase` from git deletes a rejected
-  token; delete the directory to clear all cached tokens.
-- Under `exec`, the token is visible in the environment of git and its children (hooks). Do not run
-  `git config --list` or enable `GIT_CURL_VERBOSE` under `exec`.
-- Only HTTPS to github.com goes through agent-gh. SSH remotes, other hosts, and IDE or desktop-app
-  git buttons that use their own credentials are not covered.
-- One installation per App and owner; the helper does not route per repository.
-- Commits pushed with git are not signed, so they do not show "Verified".
+## Notes
+
+- Each App has its own attribution and repository permissions. Processes under the same OS user can read one another's keys.
+- Tokens last up to one hour and are cached in the system temporary directory under `agent-gh/`. Files request mode `0600`; Windows access follows the directory ACLs. A matching Git `erase` request removes the cached token.
+- Under `exec`, child processes and hooks can read credentials. Avoid `git config --list` and `GIT_CURL_VERBOSE` there, as they can expose credentials.
+- Git authentication covers HTTPS to github.com. SSH and IDE or desktop buttons with their own authentication need separate setup.
+- Each App entry selects one installation for its owner, without per-repository routing.
+- agent-gh does not sign commits. Verified requires separate commit signing.
 
 ## License
 
-[MIT](LICENSE)
+[MIT](LICENSE) © 2026 AI Girls Institute
